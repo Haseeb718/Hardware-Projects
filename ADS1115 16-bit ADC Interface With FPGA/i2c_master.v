@@ -2,7 +2,7 @@
 // I2C Master Controller
 // ============================================================================
 //
-// Ported from iCE40/iCEBreaker to Zynq-7000 (50 MHz clock)
+// Ported from iCE40/iCEBreaker to Zynq-7010 (50 MHz clock)
 //
 // CHANGES FROM ORIGINAL:
 //   1. Removed SB_IO primitives (iCE40-specific)
@@ -14,10 +14,13 @@
 // OPEN-DRAIN IMPLEMENTATION (Xilinx IOBUF):
 //   IOBUF .I=0 always (we only ever drive LOW)
 //   IOBUF .T=~oe (T=1 means Hi-Z, T=0 means drive)
-//   So when oe=0 -> T=1 -> Hi-Z (pulled high by external resistor)
+//   So when oe=0 -> T=1 -> Hi-Z (pulled high by external 4.7k resistor)
 //      when oe=1 -> T=0 -> drive LOW
 //
-// Pull-ups must be enabled in your XDC constraints file.
+// Pull-ups: Add 4.7k resistors from SCL and SDA to 3.3V on the PCB,
+//           OR enable in XDC: set_property PULLUP true [get_ports scl]
+//
+// Original source: https://github.com/holla2040/Agentic_Verilog_iCE40_iCEBreaker
 //
 // ============================================================================
 
@@ -32,7 +35,7 @@ module i2c_master (
     input  wire [2:0] cmd_i,         // Command to execute
     input  wire [7:0] data_i,        // Data byte to write
     input  wire       ack_i,         // ACK to send on read (0=ACK, 1=NACK)
-    input  wire       start_i,       // Start command execution
+    input  wire       start_i,       // Start command execution (single pulse)
 
     output reg  [7:0] data_o,        // Data byte read
     output reg        ack_o,         // ACK received (0=ACK, 1=NACK)
@@ -73,10 +76,9 @@ module i2c_master (
     // IOBUF ports:
     //   IO = connects to the actual package pin (inout)
     //   O  = output from pin into logic (what is currently on the line)
-    //   I  = input to pin from logic (what to drive - always 0 for open-drain)
+    //   I  = input to pin from logic (always 0 for open-drain)
     //   T  = tristate control (1=Hi-Z/release, 0=drive)
-    //        NOTE: T is active HIGH for Hi-Z, opposite of oe!
-    //        So T = ~oe
+    //        NOTE: T is active HIGH for Hi-Z (opposite of oe signal)
 
     reg  scl_oe = 1'b0;
     reg  sda_oe = 1'b0;
@@ -108,22 +110,22 @@ module i2c_master (
     // ========================================================================
 
     localparam S_IDLE        = 4'd0;
-    localparam S_START_1     = 4'd1;
-    localparam S_START_2     = 4'd2;
-    localparam S_STOP_1      = 4'd3;
-    localparam S_STOP_2      = 4'd4;
-    localparam S_STOP_3      = 4'd5;
-    localparam S_WRITE_BIT   = 4'd6;
-    localparam S_WRITE_SCL_H = 4'd7;
-    localparam S_WRITE_ACK   = 4'd8;
-    localparam S_WRITE_ACK_H = 4'd9;
-    localparam S_READ_BIT    = 4'd10;
-    localparam S_READ_SCL_H  = 4'd11;
-    localparam S_READ_ACK    = 4'd12;
-    localparam S_READ_ACK_H  = 4'd13;
+    localparam S_START_1     = 4'd1;   // SDA high, SCL high, wait
+    localparam S_START_2     = 4'd2;   // SDA falls (START condition)
+    localparam S_STOP_1      = 4'd3;   // SCL rises
+    localparam S_STOP_2      = 4'd4;   // SDA rises (STOP condition)
+    localparam S_STOP_3      = 4'd5;   // Hold
+    localparam S_WRITE_BIT   = 4'd6;   // Set SDA, pull SCL low
+    localparam S_WRITE_SCL_H = 4'd7;   // Release SCL high, clock in
+    localparam S_WRITE_ACK   = 4'd8;   // Release SDA, pull SCL low
+    localparam S_WRITE_ACK_H = 4'd9;   // Release SCL, sample ACK
+    localparam S_READ_BIT    = 4'd10;  // Release SDA, pull SCL low
+    localparam S_READ_SCL_H  = 4'd11;  // Release SCL, sample bit
+    localparam S_READ_ACK    = 4'd12;  // Drive ACK/NACK, pull SCL low
+    localparam S_READ_ACK_H  = 4'd13;  // Release SCL high
 
     reg [3:0] state     = S_IDLE;
-    reg [8:0] timer     = 9'd0;
+    reg [8:0] timer     = 9'd0;        // Widened from [6:0] to hold 250
     reg [7:0] shift_reg = 8'd0;
     reg [2:0] bit_count = 3'd0;
     reg       send_ack  = 1'b0;
@@ -138,7 +140,7 @@ module i2c_master (
             S_IDLE: begin
                 busy_o <= 1'b0;
                 timer  <= 9'd0;
-                scl_oe <= 1'b0;   // Always release lines when idle
+                scl_oe <= 1'b0;
                 sda_oe <= 1'b0;
 
                 if (start_i) begin
@@ -185,7 +187,7 @@ module i2c_master (
             S_START_1: begin
                 if (timer == HALF_PERIOD - 1) begin
                     timer  <= 9'd0;
-                    sda_oe <= 1'b1;
+                    sda_oe <= 1'b1;   // Pull SDA low (START)
                     state  <= S_START_2;
                 end else begin
                     timer <= timer + 1'b1;
@@ -195,7 +197,7 @@ module i2c_master (
             S_START_2: begin
                 if (timer == HALF_PERIOD - 1) begin
                     timer  <= 9'd0;
-                    scl_oe <= 1'b1;
+                    scl_oe <= 1'b1;   // Pull SCL low (ready for data)
                     state  <= S_IDLE;
                 end else begin
                     timer <= timer + 1'b1;
@@ -209,7 +211,7 @@ module i2c_master (
             S_STOP_1: begin
                 if (timer == HALF_PERIOD - 1) begin
                     timer  <= 9'd0;
-                    scl_oe <= 1'b0;
+                    scl_oe <= 1'b0;   // Release SCL high
                     state  <= S_STOP_2;
                 end else begin
                     timer <= timer + 1'b1;
@@ -219,7 +221,7 @@ module i2c_master (
             S_STOP_2: begin
                 if (timer == HALF_PERIOD - 1) begin
                     timer  <= 9'd0;
-                    sda_oe <= 1'b0;
+                    sda_oe <= 1'b0;   // Release SDA high (STOP)
                     state  <= S_STOP_3;
                 end else begin
                     timer <= timer + 1'b1;
@@ -240,12 +242,12 @@ module i2c_master (
             // ----------------------------------------------------------------
 
             S_WRITE_BIT: begin
-                scl_oe <= 1'b1;
-                sda_oe <= ~shift_reg[7];
+                scl_oe <= 1'b1;              // SCL low
+                sda_oe <= ~shift_reg[7];      // Drive data bit
 
                 if (timer == HALF_PERIOD - 1) begin
                     timer  <= 9'd0;
-                    scl_oe <= 1'b0;
+                    scl_oe <= 1'b0;           // Release SCL high
                     state  <= S_WRITE_SCL_H;
                 end else begin
                     timer <= timer + 1'b1;
@@ -255,7 +257,7 @@ module i2c_master (
             S_WRITE_SCL_H: begin
                 if (timer == HALF_PERIOD - 1) begin
                     timer     <= 9'd0;
-                    scl_oe    <= 1'b1;
+                    scl_oe    <= 1'b1;        // Pull SCL low
                     shift_reg <= {shift_reg[6:0], 1'b0};
 
                     if (bit_count == 3'd7) begin
@@ -270,12 +272,12 @@ module i2c_master (
             end
 
             S_WRITE_ACK: begin
-                sda_oe <= 1'b0;
-                scl_oe <= 1'b1;
+                sda_oe <= 1'b0;   // Release SDA for slave ACK
+                scl_oe <= 1'b1;   // SCL low
 
                 if (timer == HALF_PERIOD - 1) begin
                     timer  <= 9'd0;
-                    scl_oe <= 1'b0;
+                    scl_oe <= 1'b0;   // Release SCL high
                     state  <= S_WRITE_ACK_H;
                 end else begin
                     timer <= timer + 1'b1;
@@ -285,8 +287,8 @@ module i2c_master (
             S_WRITE_ACK_H: begin
                 if (timer == HALF_PERIOD - 1) begin
                     timer  <= 9'd0;
-                    ack_o  <= sda_in;
-                    scl_oe <= 1'b1;
+                    ack_o  <= sda_in;  // Sample ACK (0=ACK, 1=NACK)
+                    scl_oe <= 1'b1;    // Pull SCL low
                     state  <= S_IDLE;
                 end else begin
                     timer <= timer + 1'b1;
@@ -298,12 +300,12 @@ module i2c_master (
             // ----------------------------------------------------------------
 
             S_READ_BIT: begin
-                scl_oe <= 1'b1;
-                sda_oe <= 1'b0;
+                scl_oe <= 1'b1;   // SCL low
+                sda_oe <= 1'b0;   // Release SDA for slave to drive
 
                 if (timer == HALF_PERIOD - 1) begin
                     timer  <= 9'd0;
-                    scl_oe <= 1'b0;
+                    scl_oe <= 1'b0;   // Release SCL high
                     state  <= S_READ_SCL_H;
                 end else begin
                     timer <= timer + 1'b1;
@@ -313,8 +315,8 @@ module i2c_master (
             S_READ_SCL_H: begin
                 if (timer == HALF_PERIOD - 1) begin
                     timer     <= 9'd0;
-                    shift_reg <= {shift_reg[6:0], sda_in};
-                    scl_oe    <= 1'b1;
+                    shift_reg <= {shift_reg[6:0], sda_in};  // Sample bit
+                    scl_oe    <= 1'b1;  // Pull SCL low
 
                     if (bit_count == 3'd7) begin
                         data_o <= {shift_reg[6:0], sda_in};
@@ -330,11 +332,11 @@ module i2c_master (
 
             S_READ_ACK: begin
                 scl_oe <= 1'b1;
-                sda_oe <= ~send_ack;
+                sda_oe <= ~send_ack;  // 0=drive ACK low, 1=release for NACK
 
                 if (timer == HALF_PERIOD - 1) begin
                     timer  <= 9'd0;
-                    scl_oe <= 1'b0;
+                    scl_oe <= 1'b0;   // Release SCL high
                     state  <= S_READ_ACK_H;
                 end else begin
                     timer <= timer + 1'b1;
