@@ -1,6 +1,15 @@
+<<<<<<< HEAD
 [PROJECTS]
 Count=2
 Project0=Clock.mcppi
 Project1=Clock18.mcppi
 [ActiveProject]
 Index=1
+=======
+[PROJECTS]
+Count=2
+Project0=Clock.mcppi
+Project1=Clock18.mcppi
+[ActiveProject]
+Index=1
+>>>>>>> a59ca6609c8f15a164c76a844d62705619738b77

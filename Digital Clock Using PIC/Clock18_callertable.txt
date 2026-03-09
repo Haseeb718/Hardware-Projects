@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 main
 	__CC2DW
 	Lcd_Init
@@ -20,3 +21,27 @@ main
 	Div_16x16_S
 		Div_16x16_S_L
 	text
+=======
+main
+	__CC2DW
+	Lcd_Init
+		Delay_5500us
+		Delay_1us
+	Lcd_Cmd
+		Delay_1us
+		Delay_5500us
+		Delay_50us
+	Lcd_Out
+		Lcd_Cmd
+			Delay_1us
+			Delay_5500us
+			Delay_50us
+		Lcd_Chr_CP
+			Lcd_Cmd
+				Delay_1us
+				Delay_5500us
+				Delay_50us
+	Div_16x16_S
+		Div_16x16_S_L
+	text
+>>>>>>> a59ca6609c8f15a164c76a844d62705619738b77

@@ -1,3 +1,9 @@
+<<<<<<< HEAD
 main
 	ADC_Read
 		Delay_22us
+=======
+main
+	ADC_Read
+		Delay_22us
+>>>>>>> a59ca6609c8f15a164c76a844d62705619738b77
