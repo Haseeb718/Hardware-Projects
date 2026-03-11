@@ -71,16 +71,11 @@ A solar-powered lighting solution designed in product-ready form, integrating a 
 
 ## 🚀 Getting Started
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Haseeb718/Hardware-Projects.git
-   ```
+1. **Open Proteus files** — Each project folder contains `.pdsprj` or `.DSN` files. Open these directly in Proteus ISIS/ARES.
 
-2. **Open Proteus files** — Each project folder contains `.pdsprj` or `.DSN` files. Open these directly in Proteus ISIS/ARES.
+2. **Load firmware** — For PIC projects, compile the `.c` or `.asm` source using MPLAB or MikroC and load the generated `.hex` file into the PIC component in Proteus.
 
-3. **Load firmware** — For PIC projects, compile the `.c` or `.asm` source using MPLAB or MikroC and load the generated `.hex` file into the PIC component in Proteus.
-
-4. **Run simulation** — Hit the play button in Proteus to simulate the circuit.
+3. **Run simulation** — Hit the play button in Proteus to simulate the circuit.
 
 ---
 
